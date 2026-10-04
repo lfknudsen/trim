@@ -183,19 +183,37 @@ int main(int argc, char* argv[])
 		std::cout << "No files with the " << postfix_or_prefix_text << " '" << to_remove << "' found." << endl;
 	}
 	else if (!dry_run) {
-		bool confirm = auto_confirm;
-		if (!auto_confirm) {
+		bool confirmed = auto_confirm;
+		if (!confirmed) {
 			std::cout << "Rename " << to_be_replaced.size() << " files? Y/n" << endl;
 			string confirmation;
 			getline(cin, confirmation);
-			confirm = (confirmation.compare("Y") == 0 || confirmation.compare("y") == 0 || confirmation.length() == 0);
+			confirmed = (confirmation.compare("Y") == 0 || confirmation.compare("y") == 0 || confirmation.length() == 0);
 		}
-		if (confirm) {
+		if (confirmed) {
+			size_t renamed_count = 0;
+			size_t could_not_rename = 0;
 			for (tuple<const string, const string>& paths : to_be_replaced) {
-				// TODO: Catch exception here when file already exists.
-				std::rename(get<0>(paths).c_str(), get<1>(paths).c_str());
+				auto dst = get<1>(paths).c_str();
+				if (!fs::exists(dst)) {
+					std::cout << "Error: File already exists:\n\t" << dst << endl;
+					++could_not_rename;
+				}
+				else {
+					try {
+						std::rename(get<0>(paths).c_str(), dst);
+						++renamed_count;
+					}
+					catch (exception ex) {
+						std::cout << "Error renaming file:\n\t" << dst << "Error message:\n" << ex.what() << endl;
+						++could_not_rename;
+					}
+				}
 			}
-			std::cout << "Renamed " << to_be_replaced.size() << " files." << endl;
+			std::cout << "Renamed " << renamed_count << " files." << endl;
+			if (could_not_rename > 0) {
+				std::cout << "Failed to rename " << could_not_rename << " files." << endl;
+			}
 			return 0;
 		}
 		else {
