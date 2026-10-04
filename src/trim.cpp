@@ -7,6 +7,12 @@ depend on the standard library implementation, but in practice it would
 probably just crash the programme.
 
 -d to perform dry run.
+-r to find files recursively.
+-a to auto-confirm.
+-q to avoid listing the changes.
+--right to trim the postfix rather than the prefix.
+--both to trim both prefix and postfix.
+Note that postfix trimming is of the name, not the extension.
 
 Non-recursive.
 
@@ -27,10 +33,50 @@ string trim_whitespace_right(string input) {
 	return input.substr(0, input.find_last_not_of(' ') + 1);
 }
 
+static optional<tuple<const string, const string>> handle_file(fs::directory_entry entry,
+	string to_remove,
+	string replacement,
+	bool trim_left,
+	bool trim_right,
+	bool quiet)
+{
+	if (entry.is_regular_file()) {
+		fs::path path = entry.path();
+		string stem = path.filename().stem().string();
+		string filename = path.filename().string();
+		bool trim_left_and_prefix_found = trim_left && filename.starts_with(to_remove);
+		bool trim_right_and_postfix_found = trim_right && stem.ends_with(to_remove);
+		if (trim_left_and_prefix_found || trim_right_and_postfix_found)
+		{
+			const string before = path.string();
+			if (trim_left_and_prefix_found) {
+				string filename_without_prefix = filename.substr(to_remove.length());
+				string new_filename = replacement + filename_without_prefix;
+				filename = trim_whitespace_left(new_filename);
+				path = path.parent_path().append(filename);
+			}
+			if (trim_right_and_postfix_found) {
+				string ext = path.filename().extension().string();
+				string filename_without_postfix = stem.substr(0, stem.length() - to_remove.length());
+				string new_filename = filename_without_postfix + replacement;
+				filename = trim_whitespace_right(new_filename) + ext;
+				path = path.parent_path().append(filename);
+			}
+
+			const string after = path.string();
+			if (!quiet) {
+				std::cout << before << "  ->  " << after << endl;
+			}
+			return { { before, after } };
+		}
+	}
+	return {};
+}
+
 int main(int argc, char* argv[])
 {
 	if (argc < 2) {
-		cerr << "Please provide a prefix to replace/trim." << endl;
+		cerr << "Please provide a prefix/postfix to replace/trim." << endl;
 		exit(1);
 	}
 	int i = 1;
@@ -109,39 +155,24 @@ int main(int argc, char* argv[])
 	}
 
 	size_t to_remove_length = to_remove.length();
-	vector<tuple<const string, const string>> toBeReplaced = {};
-	auto iter = fs::directory_iterator(".");
-	for (auto& entry : iter) {
-		if (entry.is_regular_file()) {
-			fs::path path = entry.path();
-			string stem = path.filename().stem().string();
-			string filename = path.filename().string();
-			bool trim_left_and_prefix_found = trim_left && filename.starts_with(to_remove);
-			bool trim_right_and_postfix_found = trim_right && stem.ends_with(to_remove);
-			if (trim_left_and_prefix_found || trim_right_and_postfix_found)
-			{
-				const string before = path.string();
-				if (trim_left_and_prefix_found) {
-					string filename_without_prefix = filename.substr(to_remove_length);
-					string new_filename = replacement + filename_without_prefix;
-					filename = trim_whitespace_left(new_filename);
-					path = path.parent_path().append(filename);
-				}
-				if (trim_right_and_postfix_found) {
-					string ext = path.filename().extension().string();
-					string filename_without_postfix = stem.substr(0, stem.length() - to_remove_length);
-					string new_filename = filename_without_postfix + replacement;
-					filename = trim_whitespace_right(new_filename) + ext;
-					path = path.parent_path().append(filename);
-				}
-
-				const string after = path.string();
-				std::cout << before << "  ->  " << after << endl;
-				toBeReplaced.push_back({ before, after });
+	vector<tuple<const string, const string>> to_be_replaced = {};
+	if (recursive) {
+		for (fs::directory_entry entry : fs::recursive_directory_iterator(".")) {
+			auto result = handle_file(entry, to_remove, replacement, trim_left, trim_right, quiet);
+			if (result.has_value()) {
+				to_be_replaced.push_back(result.value());
 			}
 		}
 	}
-	if (toBeReplaced.empty()) {
+	else {
+		for (fs::directory_entry entry : fs::directory_iterator(".")) {
+			auto result = handle_file(entry, to_remove, replacement, trim_left, trim_right, quiet);
+			if (result.has_value()) {
+				to_be_replaced.push_back(result.value());
+			}
+		}
+	}
+	if (to_be_replaced.empty()) {
 		string postfix_or_prefix_text = "prefix";
 		if (trim_left && trim_right) {
 			postfix_or_prefix_text = "prefix or postfix";
@@ -150,16 +181,21 @@ int main(int argc, char* argv[])
 			postfix_or_prefix_text = "postfix";
 		}
 		std::cout << "No files with the " << postfix_or_prefix_text << " '" << to_remove << "' found." << endl;
-	} else if (!dry_run) {
-		std::cout << "Confirm? Y/n" << endl;
-		string confirmation;
-		getline(cin, confirmation);
-		if (confirmation.compare("Y") == 0 || confirmation.compare("y") == 0 || confirmation.length() == 0) {
-			for (tuple<const string, const string>& paths : toBeReplaced) {
+	}
+	else if (!dry_run) {
+		bool confirm = auto_confirm;
+		if (!auto_confirm) {
+			std::cout << "Rename " << to_be_replaced.size() << " files? Y/n" << endl;
+			string confirmation;
+			getline(cin, confirmation);
+			confirm = (confirmation.compare("Y") == 0 || confirmation.compare("y") == 0 || confirmation.length() == 0);
+		}
+		if (confirm) {
+			for (tuple<const string, const string>& paths : to_be_replaced) {
 				// TODO: Catch exception here when file already exists.
 				std::rename(get<0>(paths).c_str(), get<1>(paths).c_str());
 			}
-			std::cout << "Renamed " << toBeReplaced.size() << " files." << endl;
+			std::cout << "Renamed " << to_be_replaced.size() << " files." << endl;
 			return 0;
 		}
 		else {
