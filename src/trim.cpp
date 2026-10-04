@@ -25,7 +25,6 @@ string trim_whitespace_left(string input) {
 
 int main(int argc, char* argv[])
 {
-	cout << "Testing." << endl;
 	if (argc < 2) {
 		cout << "Please provide a prefix to replace/trim." << endl;
 		exit(1);
