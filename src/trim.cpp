@@ -71,8 +71,7 @@ int main(int argc, char* argv[])
 	}
 	if (toBeReplaced.empty()) {
 		cout << "No files with the prefix '" << prefix << "' found." << endl;
-	}
-	if (!dry_run) {
+	} else if (!dry_run) {
 		cout << "Confirm? Y/n" << endl;
 		string confirmation;
 		getline(cin, confirmation);
